@@ -80,7 +80,14 @@ jobs:
           sudo chown -R $USER:$USER reports || true
           mkdir -p reports/snyk
           npm install -g snyk-to-html
-          snyk-to-html -i reports/snyk/report.json -o reports/snyk/index.html || true
+          
+          if [ -f "reports/snyk/report.json" ]; then
+            snyk-to-html -i reports/snyk/report.json -o reports/snyk/index.html || true
+          fi
+          
+          if [ ! -f "reports/snyk/index.html" ]; then
+            echo "<html><head><title>Reporte Snyk</title><style>body{font-family:sans-serif; padding: 2rem;}</style></head><body><h1>Reporte Snyk (SCA)</h1><p>No se pudo generar el reporte de Snyk automáticamente.</p><p>Esto suele ocurrir si el <strong>SNYK_TOKEN</strong> no está configurado en los <em>Secrets</em> de tu repositorio, o si el análisis de dependencias falló.</p></body></html>" > reports/snyk/index.html
+          fi
 
       # ---------------------------------------------------------
       # 3. Cobertura de Pruebas Unitarias
