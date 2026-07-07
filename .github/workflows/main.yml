@@ -1,0 +1,241 @@
+name: CI/CD Pipeline Integral - AnzenCore
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+permissions:
+  contents: read
+  pages: write      # Necesario para desplegar en GitHub Pages
+  id-token: write   # Necesario para GitHub Pages
+  checks: write     # Necesario para crear anotaciones en PRs y Actions
+  pull-requests: write # Necesario para comentar en PRs
+
+jobs:
+  build-and-test:
+    name: Pruebas y Análisis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # 1. Configuración de Entorno Python
+      # ---------------------------------------------------------
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          
+      - name: Instalar Dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install semgrep
+
+      # ---------------------------------------------------------
+      # 2. Análisis Estático de Seguridad (SAST)
+      # ---------------------------------------------------------
+      
+      # Semgrep
+      - name: Ejecutar Semgrep SAST
+        run: |
+          mkdir -p reports/semgrep
+          semgrep scan --config auto --json > reports/semgrep/report.json || true
+          # Para GH Pages, generamos un reporte HTML básico con Python a partir del JSON
+          python -c "
+          import json
+          try:
+              with open('reports/semgrep/report.json', 'r') as f:
+                  data = json.load(f)
+              html = '<html><head><title>Reporte Semgrep</title><style>body{font-family:sans-serif;} table{border-collapse: collapse; width: 100%;} th, td{border: 1px solid #ddd; padding: 8px;} th{background-color: #f2f2f2;}</style></head><body>'
+              html += '<h1>Reporte Semgrep (SAST)</h1><table><tr><th>Regla</th><th>Severidad</th><th>Mensaje</th><th>Archivo</th><th>Línea</th></tr>'
+              for r in data.get('results', []):
+                  html += f'<tr><td>{r.get(\"check_id\", \"\")}</td><td>{r.get(\"extra\",{}).get(\"severity\",\"\")}</td><td>{r.get(\"extra\",{}).get(\"message\",\"\")}</td><td>{r.get(\"path\", \"\")}</td><td>{r.get(\"start\",{}).get(\"line\",\"\")}</td></tr>'
+              html += '</table></body></html>'
+              with open('reports/semgrep/index.html', 'w', encoding='utf-8') as f:
+                  f.write(html)
+          except Exception as e:
+              with open('reports/semgrep/index.html', 'w', encoding='utf-8') as f:
+                  f.write(f'<h1>Reporte Semgrep</h1><p>Error generando el HTML: {e}. Revisa el JSON.</p>')
+          "
+        continue-on-error: true
+
+      # Snyk
+      - name: Ejecutar Snyk
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --json-file-output=reports/snyk/report.json || true
+        continue-on-error: true
+      
+      - name: Generar HTML de Snyk
+        run: |
+          sudo chown -R $USER:$USER reports || true
+          mkdir -p reports/snyk
+          npm install -g snyk-to-html
+          snyk-to-html -i reports/snyk/report.json -o reports/snyk/index.html || true
+
+      # ---------------------------------------------------------
+      # 3. Cobertura de Pruebas Unitarias
+      # ---------------------------------------------------------
+      - name: Ejecutar Pruebas Unitarias y Cobertura
+        run: |
+          mkdir -p reports/coverage
+          # Genera XML para las anotaciones y HTML para GH Pages
+          pytest --cov=app --cov-report=xml:reports/coverage/coverage.xml --cov-report=html:reports/coverage/htmlcov --junitxml=reports/coverage/junit.xml || true
+          
+      - name: Anotación de Cobertura en GitHub Actions
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Resultados Unitarios (Pytest)
+          path: 'reports/coverage/junit.xml'
+          reporter: java-junit # JUnit es el formato exportado por pytest
+          fail-on-error: false
+
+      # ---------------------------------------------------------
+      # 4. Pruebas de Mutación (mutmut)
+      # ---------------------------------------------------------
+      - name: Ejecutar Pruebas de Mutación
+        run: |
+          mkdir -p reports/mutation
+          # Ejecutar mutmut y generar reporte HTML
+          mutmut run --paths-to-mutate=app/ || true
+          mutmut html || true
+          if [ -d "html" ] && [ "$(ls -A html)" ]; then
+            cp -r html/* reports/mutation/
+          else
+            echo "<h1>Reporte de Mutaciones</h1><p>No se pudo generar el reporte de Mutmut automáticamente. Es posible que no se hayan encontrado mutaciones o haya ocurrido un error durante la ejecución.</p>" > reports/mutation/index.html
+          fi
+
+      # ---------------------------------------------------------
+      # 5. Pruebas BDD (Behaviour Driven Development)
+      # ---------------------------------------------------------
+      - name: Ejecutar Pruebas BDD (Behave)
+        run: |
+          mkdir -p reports/bdd
+          pip install behave-html-formatter
+          # Ejecuta behave exportando en formato JUnit y en HTML
+          python -m behave tests/bdd --junit --junit-directory reports/bdd -f behave_html_formatter:HTMLFormatter -o reports/bdd/index.html || true
+
+      - name: Anotación BDD en GitHub Actions
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Resultados BDD (Behave)
+          path: 'reports/bdd/*.xml'
+          reporter: java-junit
+          fail-on-error: false
+
+      # ---------------------------------------------------------
+      # 6. Preparar Artefactos para GitHub Pages
+      # ---------------------------------------------------------
+      - name: Consolidar Reportes para GH Pages
+        run: |
+          mkdir -p public
+          # Crear índice principal con TailwindCSS y diseño moderno
+          cat << 'EOF' > public/index.html
+          <!DOCTYPE html>
+          <html lang="es">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Dashboard DevSecOps AnzenCore</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+            <style>
+              body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f1f5f9; }
+              .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+              .card:hover { transform: translateY(-5px); transition: all 0.3s ease; border-color: #38bdf8; box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.3); }
+            </style>
+          </head>
+          <body class="min-h-screen p-8">
+            <div class="max-w-6xl mx-auto">
+              <header class="mb-12 text-center mt-10">
+                <h1 class="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-indigo-500 mb-4 drop-shadow-lg">AnzenCore DevSecOps</h1>
+                <p class="text-slate-400 text-lg">Panel Central de Reportes de Seguridad, Calidad y Pruebas</p>
+              </header>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Semgrep -->
+                <a href="semgrep/" class="glass card p-8 rounded-3xl block">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold text-cyan-400">SAST</h2>
+                    <span class="bg-cyan-900/50 text-cyan-300 text-xs px-2 py-1 rounded-full border border-cyan-800">Semgrep</span>
+                  </div>
+                  <p class="text-slate-400 text-sm">Análisis Estático de Seguridad. Explora vulnerabilidades directamente en el código fuente.</p>
+                </a>
+                <!-- Snyk -->
+                <a href="snyk/" class="glass card p-8 rounded-3xl block">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold text-indigo-400">SCA</h2>
+                    <span class="bg-indigo-900/50 text-indigo-300 text-xs px-2 py-1 rounded-full border border-indigo-800">Snyk</span>
+                  </div>
+                  <p class="text-slate-400 text-sm">Análisis de Composición. Revisa las dependencias y paquetes de terceros vulnerables.</p>
+                </a>
+                <!-- Pytest -->
+                <a href="coverage/htmlcov/" class="glass card p-8 rounded-3xl block">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold text-emerald-400">Cobertura</h2>
+                    <span class="bg-emerald-900/50 text-emerald-300 text-xs px-2 py-1 rounded-full border border-emerald-800">Pytest</span>
+                  </div>
+                  <p class="text-slate-400 text-sm">Reporte detallado de cobertura de las pruebas unitarias y funcionales (HTML).</p>
+                </a>
+                <!-- Mutmut -->
+                <a href="mutation/" class="glass card p-8 rounded-3xl block">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold text-rose-400">Mutaciones</h2>
+                    <span class="bg-rose-900/50 text-rose-300 text-xs px-2 py-1 rounded-full border border-rose-800">Mutmut</span>
+                  </div>
+                  <p class="text-slate-400 text-sm">Evaluación de la calidad real de tus pruebas mediante la inserción de mutantes en el código.</p>
+                </a>
+                <!-- Behave -->
+                <a href="bdd/" class="glass card p-8 rounded-3xl block">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold text-amber-400">Comportamiento</h2>
+                    <span class="bg-amber-900/50 text-amber-300 text-xs px-2 py-1 rounded-full border border-amber-800">Behave (BDD)</span>
+                  </div>
+                  <p class="text-slate-400 text-sm">Pruebas basadas en comportamiento. Documentación viva de los requerimientos funcionales.</p>
+                </a>
+              </div>
+            </div>
+          </body>
+          </html>
+          EOF
+          
+          cp -r reports/semgrep public/semgrep || true
+          cp -r reports/snyk public/snyk || true
+          cp -r reports/coverage public/coverage || true
+          cp -r reports/mutation public/mutation || true
+          cp -r reports/bdd public/bdd || true
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+  # ---------------------------------------------------------
+  # Job de Despliegue en GitHub Pages
+  # ---------------------------------------------------------
+  deploy-pages:
+    name: Desplegar Reportes a GitHub Pages
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Desplegar a GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

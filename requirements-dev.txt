@@ -1,0 +1,11 @@
+pytest
+pytest-cov
+behave
+playwright
+httpx
+pandas
+fastapi
+mutmut<3.0.0
+supabase
+streamlit
+streamlit-autorefresh

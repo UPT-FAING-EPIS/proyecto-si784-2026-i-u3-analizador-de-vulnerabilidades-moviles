@@ -1,0 +1,24 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV STREAMLIT_SERVER_HEADLESS=true
+ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+COPY app/__init__.py ./app/__init__.py
+COPY app/dashboard ./app/dashboard
+COPY assets ./assets
+
+RUN mkdir -p /root/.streamlit
+RUN echo '[browser]\ngatherUsageStats = false\n' > /root/.streamlit/config.toml
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "app/dashboard/main.py", "--server.port=8501", "--server.address=0.0.0.0"]

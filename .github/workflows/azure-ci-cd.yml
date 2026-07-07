@@ -1,0 +1,102 @@
+name: CI/CD Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "infra/**"
+      - "Dockerfile.*"
+      - "requirements.txt"
+      - "assets/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+env:
+  ACR_NAME: "acranzencoreprod123"
+
+jobs:
+  build-and-deploy:
+    name: Build Docker & Deploy Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: >-
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+            }
+
+      - name: Register Azure Resource Providers
+        run: |
+          for i in {1..3}; do az provider register --namespace Microsoft.App --wait && break || sleep 15; done
+          for i in {1..3}; do az provider register --namespace Microsoft.OperationalInsights --wait && break || sleep 15; done
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.TF_STATE_CONTAINER }}" \
+            -backend-config="key=anzencore-prod.tfstate"
+
+      - name: Terraform Apply (Create ACR Only)
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          terraform apply -auto-approve \
+            -target="azurerm_resource_group.rg" \
+            -target="azurerm_container_registry.acr" \
+            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
+            -var="supabase_key=${{ secrets.SUPABASE_KEY }}" \
+            -var="image_tag=${{ github.sha }}"
+
+      - name: Login to Azure Container Registry
+        run: |
+          ACR_USERNAME=$(az acr credential show --name ${{ env.ACR_NAME }} --query "username" -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv)
+          docker login ${{ env.ACR_NAME }}.azurecr.io -u "$ACR_USERNAME" -p "$ACR_PASSWORD"
+
+      - name: Build and Push API Image
+        run: |
+          docker build -f Dockerfile.api -t ${{ env.ACR_NAME }}.azurecr.io/anzencore-api:${{ github.sha }} .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/anzencore-api:${{ github.sha }}
+
+      - name: Build and Push Dashboard Image
+        run: |
+          docker build -f Dockerfile.dashboard -t ${{ env.ACR_NAME }}.azurecr.io/anzencore-dashboard:${{ github.sha }} .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/anzencore-dashboard:${{ github.sha }}
+
+      - name: Terraform Apply (Create Container Apps)
+        working-directory: infra
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          terraform apply -auto-approve \
+            -var="supabase_url=${{ secrets.SUPABASE_URL }}" \
+            -var="supabase_key=${{ secrets.SUPABASE_KEY }}" \
+            -var="image_tag=${{ github.sha }}"

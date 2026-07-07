@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.venv-buildozer/
+.git/
+.streamlit/secrets.toml
+agent/.buildozer/
+mobile/agent/.buildozer/
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate
+infra/terraform/**/*.tfstate.*

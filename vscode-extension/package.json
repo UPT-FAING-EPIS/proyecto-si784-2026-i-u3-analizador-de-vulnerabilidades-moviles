@@ -1,0 +1,115 @@
+{
+  "name": "anzencore-vscode",
+  "displayName": "AnzenCore",
+  "description": "Analizador de vulnerabilidades móviles (APK) y code smells de AnzenCore, sin salir de VS Code. El escaneo de APK es 100% local y offline.",
+  "version": "3.0.0",
+  "publisher": "gianfranco-arocutipa",
+  "license": "SEE LICENSE IN README.md",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Linters", "Other"],
+  "keywords": [
+    "security",
+    "vulnerabilities",
+    "code smells",
+    "static analysis",
+    "android",
+    "apk",
+    "mobile security",
+    "owasp mobile"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anzencore/anzencore"
+  },
+  "icon": "media/icon.png",
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "anzencore.analyzeWorkspace",
+        "title": "AnzenCore: Analizar Workspace"
+      },
+      {
+        "command": "anzencore.analyzeFolder",
+        "title": "AnzenCore: Analizar esta carpeta"
+      },
+      {
+        "command": "anzencore.analyzeCurrentFile",
+        "title": "AnzenCore: Analizar archivo actual"
+      },
+      {
+        "command": "anzencore.analyzeApk",
+        "title": "AnzenCore: Analizar APK (vulnerabilidades móviles)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "anzencore.analyzeFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "anzencore"
+        },
+        {
+          "command": "anzencore.analyzeApk",
+          "when": "resourceExtname == .apk",
+          "group": "anzencore"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "anzencore.analyzeCurrentFile",
+          "group": "anzencore"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AnzenCore",
+      "properties": {
+        "anzencore.apiBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL base de la API de AnzenCore (local o desplegada en Azure)."
+        },
+        "anzencore.excludeGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/.venv/**",
+            "**/venv/**",
+            "**/__pycache__/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/.pytest_cache/**",
+            "**/*.apk"
+          ],
+          "description": "Patrones glob a excluir al recolectar archivos para analizar."
+        },
+        "anzencore.maxFileSizeKb": {
+          "type": "number",
+          "default": 512,
+          "description": "Tamaño máximo (KB) por archivo a incluir en el análisis."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "vscode:prepublish": "npm run package"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0"
+  }
+}

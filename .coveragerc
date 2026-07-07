@@ -1,0 +1,23 @@
+[run]
+branch = True
+source =
+    .
+
+omit =
+    tests/*
+    setup.py
+    __init__.py
+    app.py
+    src/*
+    agent/*
+    mobile/*
+
+[report]
+show_missing = True
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if __name__ == .__main__.:
+    raise AssertionError
+    raise NotImplementedError
