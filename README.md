@@ -19,6 +19,8 @@
 **Repositorio de la SKILL:** https://github.com/FabrizioPerezPeralta/Skill_AnzenCore.git  
 **Extensión Visual Studio Code:** AnzenCore
 
+Link del sistema: https://anzencore-dashboard.yellowsand-01bb3852.eastus2.azurecontainerapps.io/
+
 ---
 
 ## 🎯 Objetivos del Proyecto
