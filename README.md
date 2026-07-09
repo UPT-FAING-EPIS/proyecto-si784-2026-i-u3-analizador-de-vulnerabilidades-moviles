@@ -21,6 +21,9 @@
 
 Link del sistema: https://anzencore-dashboard.yellowsand-01bb3852.eastus2.azurecontainerapps.io/
 
+
+Reporte de GitHub Pages: https://upt-faing-epis.github.io/proyecto-si784-2026-i-u3-analizador-de-vulnerabilidades-moviles/
+
 ---
 
 ## 🎯 Objetivos del Proyecto
